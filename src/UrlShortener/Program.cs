@@ -1,21 +1,46 @@
+using Microsoft.EntityFrameworkCore;
+using UrlShortener.Data;
+using UrlShortener.Services;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-
+// Add services.
 builder.Services.AddControllers();
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+
+// EF Core - PostgreSQL (connection string from configuration)
+builder.Services.AddDbContext<AppDbContext>(options =>
+{
+    var conn = builder.Configuration.GetConnectionString("Postgres");
+    if (string.IsNullOrWhiteSpace(conn))
+    {
+        // Fail fast with clear message during development if missing.
+        throw new InvalidOperationException("Connection string 'Postgres' is required.");
+    }
+    options.UseNpgsql(conn);
+});
+
+// Application services
+builder.Services.AddScoped<IUrlService, UrlService>();
+
+// Swagger
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+app.Logger.LogInformation("UrlShortener starting up.");
+
+// Enable Swagger in Development or when explicitly enabled via config.
+var swaggerEnabled = app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Swagger:Enabled");
+if (swaggerEnabled)
 {
-    app.MapOpenApi();
+    app.UseSwagger();
+    app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+// Do not enforce HTTPS redirection in container environments.
 
+// Authorization middleware (no auth configured; kept to allow future policies)
 app.UseAuthorization();
 
 app.MapControllers();
