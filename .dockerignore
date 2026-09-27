@@ -1,0 +1,41 @@
+# Build context hygiene. Without this, the Windows-generated obj/ folder is
+# copied into the Linux build and `dotnet publish` fails on absolute paths
+# baked into project.assets.json. It also keeps the context small and fast.
+**/bin/
+**/obj/
+**/out/
+**/publish/
+
+# VCS and IDE
+.git/
+.gitignore
+.gitattributes
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.slnx
+*.sln
+
+# Local secrets and env - must never land in an image layer
+.env
+.env.*
+!.env.example
+**/appsettings.Development.json
+**/*.pfx
+**/*.p12
+
+# Container + docs
+Dockerfile*
+.dockerignore
+compose*.yaml
+compose*.yml
+docker-compose*.yml
+*.md
+LICENSE
+
+# Test and dev helpers
+smoke-test.ps1
+**/*.http
+**/TestResults/

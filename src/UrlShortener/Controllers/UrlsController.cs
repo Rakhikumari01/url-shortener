@@ -42,7 +42,7 @@ namespace UrlShortener.Controllers
             }
         }
 
-        [HttpGet("{code:regex(^[0-9a-zA-Z]{1,11}$)}/stats", Name = nameof(GetStats))]
+        [HttpGet("{code:regex(^[[0-9a-zA-Z]]{{1,11}}$)}/stats", Name = nameof(GetStats))]
         public async Task<IActionResult> GetStats(string code, CancellationToken cancellationToken)
         {
             var entity = await _service.GetByCodeAsync(code, cancellationToken).ConfigureAwait(false);

@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -14,14 +15,28 @@ namespace UrlShortener.Services
     {
         private readonly AppDbContext _db;
         private readonly ILogger<UrlService> _logger;
-        private readonly string _baseUrl;
+        private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly string? _configuredBaseUrl;
 
-        public UrlService(AppDbContext db, IConfiguration configuration, ILogger<UrlService> logger)
+        public UrlService(AppDbContext db,IConfiguration configuration,IHttpContextAccessor httpContextAccessor,ILogger<UrlService> logger)
         {
             _db = db;
             _logger = logger;
-            _baseUrl = configuration.GetValue<string>("BaseUrl")?.TrimEnd('/')
-                ?? throw new InvalidOperationException("Configuration value 'BaseUrl' is required.");
+            _httpContextAccessor = httpContextAccessor;
+
+            var configured = configuration.GetValue<string>("BaseUrl");
+            _configuredBaseUrl = string.IsNullOrWhiteSpace(configured)
+                ? null
+                : configured.TrimEnd('/');
+        }
+
+        private string ResolveBaseUrl()
+        {
+            if (_configuredBaseUrl != null) return _configuredBaseUrl;
+
+            var request = _httpContextAccessor.HttpContext?.Request ?? throw new InvalidOperationException("'BaseUrl' is not configured and there is no active HTTP request to derive it from.");
+
+            return $"{request.Scheme}://{request.Host}";
         }
 
         public async Task<CreateShortUrlResponse> CreateAsync(CreateShortUrlRequest request, CancellationToken cancellationToken = default)
@@ -29,9 +44,7 @@ namespace UrlShortener.Services
             if (request?.Url == null) throw new ArgumentException("Url is required.", nameof(request));
             if (request.Url.Length > 2048) throw new ArgumentException("Url exceeds maximum length of 2048 characters.", nameof(request));
 
-            if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri) ||
-                !(string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
-                  string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+            if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri) ||!(string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) || string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
             {
                 throw new ArgumentException("The URL must be an absolute HTTP or HTTPS URL.", nameof(request));
             }
@@ -51,7 +64,7 @@ namespace UrlShortener.Services
             _db.ShortUrls.Update(entity);
             await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-            var shortUrl = $"{_baseUrl}/{entity.Code}";
+            var shortUrl = $"{ResolveBaseUrl()}/{entity.Code}";
             return new CreateShortUrlResponse
             {
                 Code = entity.Code!,

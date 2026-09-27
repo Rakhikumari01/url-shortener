@@ -1,0 +1,82 @@
+# Modern Compose (the `docker compose` v2 CLI, not the old python `docker-compose`)
+# doesn't need a `version:` key - the field was deprecated because the CLI now
+# tracks the compose spec, not the old versioned schema. `docker compose config`
+# will still print a warning if you keep it, so it's simply left out.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      # Exposed to the host only so you can point a DB client (psql, DBeaver,
+      # DataGrip) at it while learning. Nothing else in this stack needs it
+      # published - the api and migrate containers reach postgres by service
+      # name over the compose-managed bridge network, never via this port.
+      - "${POSTGRES_HOST_PORT}:5432"
+    volumes:
+      # A named volume, not a bind mount: Postgres's data files are managed by
+      # Postgres itself and don't need to be human-browsable on the host. This
+      # is what makes `docker compose down` (no data loss) different from
+      # `docker compose down -v` (drops the volume, and the data with it).
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # One-shot job: applies pending EF Core migrations, then exits 0 (success)
+  # or non-zero (failure). Reuses the exact same image as `api` - only the
+  # entrypoint differs - so there is exactly one artifact to build and version,
+  # not two images that can silently drift apart.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: urlshortener-api:local
+    entrypoint: ["./efbundle"]
+    environment:
+      # Same variable name Program.cs and AppDbContextFactory both read
+      # (ConnectionStrings:Postgres -> ConnectionStrings__Postgres). Passed as
+      # an env var rather than `--connection <string>` on the command line so
+      # the password doesn't show up verbatim in `docker inspect`'s process
+      # list / `docker top` output.
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: urlshortener-api:local
+    ports:
+      - "${API_HOST_PORT}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      # appsettings.Development.json (where Swagger would normally turn on) is
+      # deliberately excluded from the image by .dockerignore, so Swagger is
+      # off unless explicitly turned on here. Fine while you're the only
+      # caller; in a real prod deployment this would come back out.
+      Swagger__Enabled: "true"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    # Uses the HEALTHCHECK baked into the image (hits /health/ready, which
+    # actually checks Postgres - not /health/live, which intentionally checks
+    # nothing so a DB blip can't trigger a pointless restart loop).
+    restart: unless-stopped
+
+volumes:
+  pgdata:

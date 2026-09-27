@@ -1,7 +1,4 @@
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
 using UrlShortener.Services;
 
 namespace UrlShortener.Controllers
@@ -18,7 +15,7 @@ namespace UrlShortener.Controllers
             _logger = logger;
         }
 
-        [HttpGet("{code:regex(^[0-9a-zA-Z]{1,11}$)}")]
+        [HttpGet("{code:regex(^[[0-9a-zA-Z]]{{1,11}}$)}")]
         public async Task<IActionResult> Get(string code, CancellationToken cancellationToken)
         {
             var entity = await _service.GetByCodeAsync(code, cancellationToken).ConfigureAwait(false);

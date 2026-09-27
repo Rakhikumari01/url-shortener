@@ -1,6 +1,73 @@
-@UrlShortener_HostAddress = http://localhost:5015
+@host = http://localhost:5015
 
-GET {{UrlShortener_HostAddress}}/weatherforecast/
+### 1. Create a short URL  -> expect 201 + Location header
+# @name create
+POST {{host}}/api/urls
+Content-Type: application/json
+
+{ "url": "https://example.com/some/very/long/path?a=1&b=2" }
+
+### 2. Stats for the code just created -> expect 200, clickCount 0
+GET {{host}}/api/urls/{{create.response.body.code}}/stats
 Accept: application/json
 
-###
+### 3. Follow the short code -> expect 302 + Location: originalUrl
+GET {{host}}/{{create.response.body.code}}
+
+### 4. Stats again -> clickCount should now be 1
+GET {{host}}/api/urls/{{create.response.body.code}}/stats
+Accept: application/json
+
+### --- validation / negative cases ---
+
+### 5. Not an absolute http(s) URL -> expect 400 ProblemDetails
+POST {{host}}/api/urls
+Content-Type: application/json
+
+{ "url": "notaurl" }
+
+### 6. Disallowed scheme -> expect 400
+POST {{host}}/api/urls
+Content-Type: application/json
+
+{ "url": "ftp://example.com/file.txt" }
+
+### 7. javascript: scheme (XSS via redirect) -> expect 400
+POST {{host}}/api/urls
+Content-Type: application/json
+
+{ "url": "javascript:alert(1)" }
+
+### 8. Missing url field -> expect 400 (model validation)
+POST {{host}}/api/urls
+Content-Type: application/json
+
+{ }
+
+### 9. Empty body -> expect 400
+POST {{host}}/api/urls
+Content-Type: application/json
+
+### 10. Malformed JSON -> expect 400
+POST {{host}}/api/urls
+Content-Type: application/json
+
+{ "url": "https://example.com"
+
+### 11. Unknown code -> expect 404
+GET {{host}}/api/urls/zzzzz/stats
+
+### 12. Unknown code redirect -> expect 404
+GET {{host}}/zzzzz
+
+### 13. Code with invalid chars -> expect 404 (route regex rejects, never reaches handler)
+GET {{host}}/api/urls/ab_cd/stats
+
+### 14. Code longer than 11 chars -> expect 404 (route regex rejects)
+GET {{host}}/api/urls/abcdefghijkl/stats
+
+### 15. Wrong verb on collection -> expect 405
+GET {{host}}/api/urls
+
+### 16. Swagger UI (Development only)
+GET {{host}}/swagger/index.html
